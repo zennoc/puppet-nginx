@@ -4,7 +4,7 @@ describe 'nginx' do
 
   let(:title) { 'nginx' }
   let(:node) { 'rspec.example42.com' }
-  let(:facts) { { :ipaddress => '10.42.42.42' } }
+  let(:facts) { { :ipaddress => '10.42.42.42', :concat_basedir => '/var/lib/puppet/concat' } }
 
   describe 'Test standard installation' do
     it { should contain_package('nginx').with_ensure('present') }
@@ -83,6 +83,56 @@ describe 'nginx' do
   end 
 
   describe 'Test customizations - template' do
+    let(:facts) { { :operatingsystem => 'Debian', :processorcount => 8 } }
+    let(:params) do
+      { 
+        :template => "nginx/conf.d/nginx.conf.erb"
+      }
+    end
+    let(:expected) do
+'# File Managed by Puppet 
+user www-data;
+worker_processes 8;
+
+error_log  /var/log/nginx/error.log;
+pid        /var/run/nginx.pid;
+
+events {
+  worker_connections 1024;
+  # 
+}
+
+http {
+  server_tokens off;
+  include       /etc/nginx/mime.types;
+  default_type  application/octet-stream;
+
+  access_log  /var/log/nginx/access.log;
+
+  sendfile    on;
+  #tcp_nopush  on;
+  tcp_nodelay        on;
+  client_max_body_size 10m;
+  keepalive_timeout  65;
+  server_names_hash_bucket_size 64;
+  types_hash_max_size 1024;
+
+  gzip         on;
+  gzip_disable "MSIE [1-6]\.(?!.*SV1)";
+
+
+  include /etc/nginx/conf.d/*.conf;
+
+  include /etc/nginx/sites-available/*.conf;
+}
+'
+    end
+    it 'should generate a valid template' do
+      should contain_file('nginx.conf').with_content(expected)
+    end
+  end
+
+  describe 'Test customizations - use own template' do
     let(:params) { {:template => "nginx/spec.erb" , :options => { 'opt_a' => 'value_a' } } }
 
     it 'should generate a valid template' do

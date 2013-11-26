@@ -81,6 +81,9 @@
 #   Can be defined also by the (top scope) variables $nginx_monitor_target
 #   and $monitor_target
 #
+# [*monitor_config_hash*]
+#   A generic Hash that will be passed to certain monitoring Implementations
+#
 # [*puppi*]
 #   Set to 'true' to enable creation of module data files that are used by puppi
 #   Can be defined also by the (top scope) variables $nginx_puppi and $puppi
@@ -146,9 +149,16 @@
 # [*keepalive_timeout*]
 #   Specified keepalive timeout. Default is 65(ms).
 #
+# [*server_names_hash_bucket_size*]
+#   Specified the server_names_hash_bucket_size. Default is 64
+#   Increase this to powers of 2 if you are getting related errors
+#
 # [*client_max_body_size*]
-#   Specified the max body size of client. Default is 10mb. 
+#   Specified the max body size of client. Default is 10mb.
 #   Increase this param if your nginx is an upload server.
+#
+# [*sendfile*]
+#   Activate or deactivate the usage of sendfile. Default is on.
 #
 # [*service_status*]
 #   If the nginx service init script supports status argument
@@ -180,6 +190,9 @@
 #
 # [*config_file_init*]
 #   Path of configuration file sourced by init script
+#
+# [*config_file_default_purge*]
+#   Set to 'true' to purge the default configuration file
 #
 # [*pid_file*]
 #   Path of pid file. Used by monitor
@@ -221,7 +234,10 @@ class nginx (
   $gzip                = params_lookup( 'gzip' ),
   $worker_connections  = params_lookup( 'worker_connections' ),
   $keepalive_timeout   = params_lookup( 'keepalive_timeout' ),
+  $server_names_hash_bucket_size  = params_lookup( 'server_names_hash_bucket_size' ),
   $client_max_body_size  = params_lookup( 'client_max_body_size' ),
+  $types_hash_max_size = params_lookup( 'types_hash_max_size' ),
+  $sendfile            = params_lookup( 'sendfile' ),
   $my_class            = params_lookup( 'my_class' ),
   $source              = params_lookup( 'source' ),
   $source_dir          = params_lookup( 'source_dir' ),
@@ -236,6 +252,7 @@ class nginx (
   $monitor             = params_lookup( 'monitor' , 'global' ),
   $monitor_tool        = params_lookup( 'monitor_tool' , 'global' ),
   $monitor_target      = params_lookup( 'monitor_target' , 'global' ),
+  $monitor_config_hash = params_lookup( 'monitor_config_hash' ),
   $puppi               = params_lookup( 'puppi' , 'global' ),
   $puppi_helper        = params_lookup( 'puppi_helper' , 'global' ),
   $firewall            = params_lookup( 'firewall' , 'global' ),
@@ -256,12 +273,14 @@ class nginx (
   $config_file_owner   = params_lookup( 'config_file_owner' ),
   $config_file_group   = params_lookup( 'config_file_group' ),
   $config_file_init    = params_lookup( 'config_file_init' ),
+  $config_file_default_purge = params_lookup( 'config_file_default_purge'),
   $pid_file            = params_lookup( 'pid_file' ),
   $data_dir            = params_lookup( 'data_dir' ),
   $log_dir             = params_lookup( 'log_dir' ),
   $log_file            = params_lookup( 'log_file' ),
   $port                = params_lookup( 'port' ),
-  $protocol            = params_lookup( 'protocol' )
+  $protocol            = params_lookup( 'protocol' ),
+  $disable_default_site = params_lookup( 'disable_default_site' )
   ) inherits nginx::params {
 
   $bool_source_dir_purge=any2bool($source_dir_purge)
@@ -283,6 +302,11 @@ class nginx (
   }
 
   ### Calculation of variables that dependes on arguments
+  # Debian uses TWO configs dirs separatedly
+  $cdir = $::operatingsystem ? {
+    default => "${nginx::config_dir}/conf.d",
+  }
+
   $vdir = $::operatingsystem ? {
     /(?i:Ubuntu|Debian|Mint)/ => "${nginx::config_dir}/sites-available",
     default                   => "${nginx::config_dir}/conf.d",
@@ -402,6 +426,15 @@ class nginx (
     }
   }
 
+  if $nginx::config_file_default_purge {
+    file { 'nginx.default.site':
+      ensure  => absent,
+      path    => '/etc/nginx/sites-enabled/default',
+      require => Package['nginx'],
+      notify  => Service['nginx'],
+    }
+  }
+
 
   ### Include custom class if $my_class is set
   if $nginx::my_class {
@@ -430,13 +463,14 @@ class nginx (
       enable   => $nginx::manage_monitor,
     }
     monitor::process { 'nginx_process':
-      process  => $nginx::process,
-      service  => $nginx::service,
-      pidfile  => $nginx::pid_file,
-      user     => $nginx::process_user,
-      argument => $nginx::process_args,
-      tool     => $nginx::monitor_tool,
-      enable   => $nginx::manage_monitor,
+      process     => $nginx::process,
+      service     => $nginx::service,
+      pidfile     => $nginx::pid_file,
+      user        => $nginx::process_user,
+      argument    => $nginx::process_args,
+      tool        => $nginx::monitor_tool,
+      enable      => $nginx::manage_monitor,
+      config_hash => $nginx::monitor_config_hash,
     }
   }
 
@@ -468,4 +502,17 @@ class nginx (
     }
   }
 
+  ### Remove the default nginx conf if it exists
+  if ($nginx::disable_default_site) {
+    $default_site = $::operatingsystem ? {
+      /(?i:Debian|Ubuntu|Mint)/              => "${nginx::config_dir}/sites-enabled/default",
+      /(?i:Redhat|Centos|Scientific|Dedora)/ => "${nginx::config_dir}/conf.d/default.conf",
+    }
+
+    file { $default_site:
+      ensure  => absent,
+      require => Package[$nginx::package],
+      notify  => Service[$nginx::service],
+    }
+  }
 }

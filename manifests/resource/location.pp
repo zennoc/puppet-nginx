@@ -32,19 +32,24 @@ define nginx::resource::location(
   $ensure             = present,
   $vhost              = undef,
   $www_root           = undef,
+  $create_www_root    = false,
+  $owner              = '',
+  $groupowner         = '',
   $redirect           = undef,
   $index_files        = ['index.html', 'index.htm', 'index.php'],
   $proxy              = undef,
   $proxy_read_timeout = '90',
   $proxy_set_header   = ['Host $host', 'X-Real-IP $remote_addr', 'X-Forwarded-For $proxy_add_x_forwarded_for', 'X-Forwarded-Proto $scheme' ],
+  $proxy_redirect     = undef,
   $ssl                = false,
+  $ssl_only           = false,
   $option             = undef,
   $mixin_ssl          = undef,
   $template_ssl_proxy = 'nginx/vhost/vhost_location_proxy.erb',
   $template_proxy     = 'nginx/vhost/vhost_location_proxy.erb',
   $template_directory = 'nginx/vhost/vhost_location_directory.erb',
   $template_redirect  = 'nginx/vhost/vhost_location_redirect.erb',
-  $location
+  $location           = $title
 ) {
   File {
     owner  => 'root',
@@ -53,22 +58,37 @@ define nginx::resource::location(
     notify => $nginx::manage_service_autorestart,
   }
 
+  $bool_create_www_root = any2bool($create_www_root)
+  $bool_ssl_only = any2bool($ssl_only)
+
+  $real_owner = $owner ? {
+    ''      => $nginx::config_file_owner,
+    default => $owner,
+  }
+
+  $real_groupowner = $groupowner ? {
+    ''      => $nginx::config_file_group,
+    default => $groupowner,
+  }
+
   ## Shared Variables
   $ensure_real = $ensure ? {
     'absent' => absent,
     default  => file,
   }
 
+  $file_real = "${nginx::vdir}/${vhost}.conf"
+
   # Use proxy template if $proxy is defined, otherwise use directory template.
   if ($proxy != undef) {
-    $content_real     = template("${template_proxy}")
-    $content_ssl_real = template("${template_ssl_proxy}")
+    $content_real     = template($template_proxy)
+    $content_ssl_real = template($template_ssl_proxy)
   } else {
     if ($redirect != undef) {
-      $content_real = template("${template_redirect}")
+      $content_real = template($template_redirect)
     } else {
-      $content_real     = template("${template_directory}")
-      $content_ssl_real = template("${template_directory}")
+      $content_real     = template($template_directory)
+      $content_ssl_real = template($template_directory)
     }
   }
 
@@ -89,21 +109,32 @@ define nginx::resource::location(
     fail('Cannot define both proxy and redirect in a virtual host')
   }
 
+  if $bool_create_www_root == true {
+    file { $www_root:
+      ensure => directory,
+      owner  => $real_owner,
+      group  => $real_groupowner,
+    }
+  }
+
+
   ## Create stubs for vHost File Fragment Pattern
-  concat::fragment { "${vhost}+${location}+50.tmp":
-    ensure  => $ensure,
-    order   => '50',
-    content => $content_real,
-    target  => "${nginx::config_dir}/sites-available/${vhost}.conf",
+  if $bool_ssl_only != true {
+    concat::fragment { "${vhost}+50-${location}.tmp":
+      ensure  => $ensure_real,
+      order   => '50',
+      content => $content_real,
+      target  => $file_real,
+    }
   }
 
   if ($mixin_ssl) {
     ## Only create SSL Specific locations if $ssl is true.
-    concat::fragment { "${vhost}+${location}+80-ssl.tmp":
+    concat::fragment { "${vhost}+80-ssl-${location}.tmp":
       ensure  => $ssl,
       order   => '80',
       content => $content_ssl_real,
-      target  => "${nginx::config_dir}/sites-available/${vhost}.conf",
+      target  => $file_real,
     }
   }
 }

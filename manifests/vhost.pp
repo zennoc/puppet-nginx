@@ -24,25 +24,26 @@
 #
 define nginx::vhost (
   $docroot,
-  $port          = '80',
-  $template      = 'nginx/vhost/vhost.conf.erb',
-  $priority      = '50',
-  $serveraliases = '',
+  $port           = '80',
+  $template       = 'nginx/vhost/vhost.conf.erb',
+  $priority       = '50',
+  $serveraliases  = '',
   $create_docroot = true,
-  $enable        = true,
-  $owner         = '',
-  $groupowner    = '' ) {
+  $enable         = true,
+  $owner          = '',
+  $groupowner     = ''
+) {
 
   include nginx
   include nginx::params
 
   $real_owner = $owner ? {
-    ''      => "${nginx::config_file_owner}",
+    ''      => $nginx::config_file_owner,
     default => $owner,
   }
 
   $real_groupowner = $groupowner ? {
-    ''      => "${nginx::config_file_group}",
+    ''      => $nginx::config_file_group,
     default => $groupowner,
   }
 
@@ -58,15 +59,17 @@ define nginx::vhost (
   }
 
   # Some OS specific settings:
-  # On Debian/Ubuntu manages sites-enabled 
+  # On Debian/Ubuntu manages sites-enabled
   case $::operatingsystem {
     ubuntu,debian,mint: {
-      file { "NginxVHostEnabled_$name":
-        path    => "/etc/nginx/sites-enabled/${priority}-${name}.conf",
-        ensure  => $enable ? {
-          true  => "${nginx::vdir}/${priority}-${name}.conf",
-          false => absent,
-        },
+      $manage_file = $enable ? {
+        true  => "${nginx::vdir}/${priority}-${name}.conf",
+        false => absent,
+      }
+
+      file { "NginxVHostEnabled_${name}":
+        ensure  => $manage_file,
+        path    => "${nginx::config_dir}/sites-enabled/${priority}-${name}.conf",
         require => Package['nginx'],
         notify  => Service['nginx'],
       }

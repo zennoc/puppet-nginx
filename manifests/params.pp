@@ -18,7 +18,10 @@ class nginx::params {
   $worker_connections = 1024
   $keepalive_timeout = 65
   $client_max_body_size = '10m'
-  
+  $server_names_hash_bucket_size =64
+  $types_hash_max_size = 1024
+  $sendfile = 'on'
+
   ### Application related parameters
 
   $package = $::operatingsystem ? {
@@ -95,6 +98,7 @@ class nginx::params {
   $source = ''
   $source_dir = ''
   $source_dir_purge = false
+  $config_file_default_purge = false
   $template = ''
   $options = ''
   $service_autorestart = true
@@ -102,6 +106,7 @@ class nginx::params {
   $absent = false
   $disable = false
   $disableboot = false
+  $disable_default_site = false
 
   ### General module variables that can have a site or per module default
   $monitor = false
